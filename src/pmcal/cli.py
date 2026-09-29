@@ -16,6 +16,9 @@ def main(argv: list[str] | None = None) -> None:
     f.add_argument("--out", type=Path, default=Path("data/processed/full.parquet"))
     f.add_argument("--raw-dir", type=Path, default=Path("data/raw"))
     f.add_argument("--min-volume", type=float, default=20_000.0, help="minimum lifetime USD volume")
+    f.add_argument(
+        "--min-lifetime-days", type=float, default=31.0, help="min days from start to resolution"
+    )
     f.add_argument("--sample", type=int, default=None, help="random subsample of eligible markets")
     f.add_argument("--seed", type=int, default=0)
     f.add_argument("--max-pages", type=int, default=None, help="cap Gamma pages (debugging)")
@@ -28,7 +31,14 @@ def main(argv: list[str] | None = None) -> None:
     if args.cmd == "fetch":
         from .fetch import build_dataset
 
-        df = build_dataset(args.raw_dir, args.min_volume, args.max_pages, args.sample, args.seed)
+        df = build_dataset(
+            args.raw_dir,
+            args.min_volume,
+            args.max_pages,
+            args.min_lifetime_days,
+            args.sample,
+            args.seed,
+        )
         args.out.parent.mkdir(parents=True, exist_ok=True)
         df.drop(columns=["t_res_dt"], errors="ignore").to_parquet(
             args.out, index=False, compression="zstd"
