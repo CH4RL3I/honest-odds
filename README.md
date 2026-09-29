@@ -1,5 +1,7 @@
 # Are prediction markets calibrated?
 
+[![CI](https://github.com/CH4RL3I/prediction-market-calibration/actions/workflows/ci.yml/badge.svg)](https://github.com/CH4RL3I/prediction-market-calibration/actions/workflows/ci.yml) ![Python](https://img.shields.io/badge/python-3.11%2B-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green)
+
 A calibration and mispricing study of resolved Polymarket binary markets.
 
 **Question.** When a Polymarket contract trades at 20 cents, does the event happen about 20% of the time? Where and when do prices deviate from realised frequencies, is there a favourite-longshot bias, and could a simple recalibration rule have exploited it out of sample, after costs?
