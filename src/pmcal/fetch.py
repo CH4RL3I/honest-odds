@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import sys
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
 
@@ -67,29 +69,38 @@ def collect_markets(
 
 # The CLOB API answers 200 with an empty history when `fidelity` is too fine for the requested
 # range (observed: fidelity=60 with interval=max works for short-lived markets, returns nothing
-# for long-lived ones; 720 works for all of them). Try fine first, fall back to coarse.
-FIDELITIES = (60, 720)
+# for long-lived ones; 720 works for all of them). The cohort is long-lived, so 720 goes first.
+FIDELITIES = (720, 60)
+WORKERS = 6  # threads share one global request-rate cap in Client
 
 
-def fill_categories(client: Client, markets: list[Market], log=print) -> list[Market]:
-    """Newer Gamma markets have no `category`; look up their tags one by one (cached)."""
+def _log(msg):
+    print(msg, file=sys.stderr, flush=True)
+
+
+def fill_categories(client: Client, markets: list[Market], log=_log) -> list[Market]:
+    """Newer Gamma markets have no `category`; look up their tags (cached, threaded)."""
+
+    def one(m: Market) -> Market:
+        if m.category != "Uncategorised":
+            return m
+        raw = client.get_json(
+            f"{GAMMA}/markets/{m.market_id}", {"include_tag": "true"}, cache_key="tags/{h}.json"
+        )
+        labels = [t.get("label") for t in (raw or {}).get("tags") or []]
+        return replace(m, category=normalise_category(labels))
+
     out = []
-    for i, m in enumerate(markets, 1):
-        if m.category == "Uncategorised":
-            raw = client.get_json(
-                f"{GAMMA}/markets/{m.market_id}",
-                {"include_tag": "true"},
-                cache_key="tags/{h}.json",
-            )
-            labels = [t.get("label") for t in (raw or {}).get("tags") or []]
-            m = replace(m, category=normalise_category(labels))
-        out.append(m)
-        if i % 500 == 0:
-            log(f"  tags {i}/{len(markets)}")
+    with ThreadPoolExecutor(WORKERS) as ex:
+        for i, m in enumerate(ex.map(one, markets), 1):
+            out.append(m)
+            if i % 500 == 0:
+                log(f"  tags {i}/{len(markets)}")
     return out
 
 
 def fetch_history(client: Client, token: str, fidelities=FIDELITIES):
+    t = p = None
     for fid in fidelities:
         payload = client.get_json(
             f"{CLOB}/prices-history",
@@ -98,7 +109,7 @@ def fetch_history(client: Client, token: str, fidelities=FIDELITIES):
         )
         t, p = parse_history(payload or {})
         if len(t):
-            return t, p
+            break
     return t, p
 
 
@@ -109,7 +120,7 @@ def build_dataset(
     min_lifetime_days: float = 0.0,
     sample: int | None = None,
     seed: int = 0,
-    log=print,
+    log=_log,
 ) -> pd.DataFrame:
     client = Client(raw_dir)
     markets = collect_markets(client, min_volume, max_pages, log, min_lifetime_days)
@@ -122,13 +133,14 @@ def build_dataset(
     markets = fill_categories(client, markets, log)
     rows: list[dict] = []
     no_hist = 0
-    for i, m in enumerate(markets, 1):
-        t, p = fetch_history(client, m.yes_token)
-        if len(t) == 0:
-            no_hist += 1
-        else:
-            rows += snapshot_rows(m, t, p)
-        if i % 200 == 0:
-            log(f"  history {i}/{len(markets)} rows={len(rows)} empty={no_hist}")
+    with ThreadPoolExecutor(WORKERS) as ex:
+        histories = ex.map(lambda m: fetch_history(client, m.yes_token), markets)
+        for i, (m, (t, p)) in enumerate(zip(markets, histories, strict=True), 1):
+            if len(t) == 0:
+                no_hist += 1
+            else:
+                rows += snapshot_rows(m, t, p)
+            if i % 200 == 0:
+                log(f"  history {i}/{len(markets)} rows={len(rows)} empty={no_hist}")
     log(f"markets with empty history: {no_hist}/{len(markets)}")
     return rows_to_frame(rows)

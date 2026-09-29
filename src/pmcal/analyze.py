@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import matplotlib
@@ -30,6 +31,15 @@ BLUE, RED, GREY = "#1f5fa8", "#c0392b", "#6b7280"
 def score_row(d: pd.DataFrame) -> dict:
     fit = fit_recalibration(d["price"], d["outcome"], groups=d["market_id"])
     mu = murphy_decomposition(d["price"], d["outcome"], edges=np.linspace(0, 1, 11))
+    if abs(fit.slope) > 15:  # (quasi-)complete separation: MLE does not exist, report nothing
+        fit = replace(
+            fit,
+            intercept=np.nan,
+            slope=np.nan,
+            se_slope=np.nan,
+            p_slope_eq_1=np.nan,
+            p_joint=np.nan,
+        )
     return {
         "n": len(d),
         "base_rate": d["outcome"].mean(),
@@ -65,7 +75,9 @@ def breakdown(df: pd.DataFrame, horizon: int, col: str) -> pd.DataFrame:
         rows.append({col: key} | score_row(g))
     out = pd.DataFrame(rows)
     if len(out):
-        out["p_holm"] = holm(out["p_slope_eq_1"])
+        ok = out["p_slope_eq_1"].notna()
+        out["p_holm"] = np.nan
+        out.loc[ok, "p_holm"] = holm(out.loc[ok, "p_slope_eq_1"])
     return out
 
 
@@ -108,7 +120,7 @@ def favourite_longshot(df: pd.DataFrame, horizon: int) -> pd.DataFrame:
 
 def fig_calibration(df: pd.DataFrame, path: Path) -> None:
     hs = [h for h in HORIZONS_DAYS if (df.horizon_days == h).sum() >= MIN_CELL]
-    fig, axes = plt.subplots(1, len(hs), figsize=(4.6 * len(hs), 4.7), sharey=True)
+    fig, axes = plt.subplots(1, len(hs), figsize=(4.6 * len(hs), 5.2), sharey=True)
     axes = np.atleast_1d(axes)
     for ax, h in zip(axes, hs, strict=True):
         d = df[df.horizon_days == h]
@@ -167,7 +179,7 @@ def fig_slopes(tables: dict[str, pd.DataFrame], path: Path) -> None:
     ax.set_xlabel(
         "calibration slope on logit(price), 95% CI (1 = calibrated; <1 = prices too extreme)"
     )
-    ax.set_title("Where is calibration worst? (7-day horizon)", fontsize=11)
+    ax.set_title("Calibration slope by horizon, and by category / volume at 7 days", fontsize=11)
     ax.grid(axis="x", alpha=0.25)
     fig.tight_layout()
     fig.savefig(path, dpi=150)
@@ -212,7 +224,11 @@ def md_table(df: pd.DataFrame, fmt: dict[str, str]) -> str:
         for c in cols:
             v = r[c]
             f = fmt.get(c)
-            cells.append(format(v, f) if (f and pd.notna(v)) else ("" if pd.isna(v) else str(v)))
+            cells.append(
+                format(int(v) if f.endswith("d") else v, f)
+                if (f and pd.notna(v))
+                else ("" if pd.isna(v) else str(v))
+            )
         lines.append("| " + " | ".join(cells) + " |")
     return "\n".join(lines)
 
@@ -352,6 +368,10 @@ def run(data: Path, out_dir: Path, log=print) -> dict:
     L.append(
         f"Rows with fewer than {MIN_CELL} observations are omitted. `p_holm` is the Holm-adjusted p-value "
         "across the rows of each table (slope = 1).\n"
+    )
+    L.append(
+        "Slope columns are blank where the logistic fit has (quasi-)complete separation "
+        "(|slope| > 15), e.g. a category whose 1-day prices predict every outcome.\n"
     )
     L.append("**By category, 7-day horizon**\n")
     L.append(md_table(cat7, FMT) + "\n")

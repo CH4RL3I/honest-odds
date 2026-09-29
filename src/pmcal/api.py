@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 import time
 from pathlib import Path
 
@@ -20,13 +21,15 @@ class Client:
         self.min_interval = min_interval
         self.retries = retries
         self._last = 0.0
+        self._lock = threading.Lock()
         self._http = httpx.Client(timeout=30, headers={"User-Agent": UA})
 
     def _sleep_for_throttle(self) -> None:
-        wait = self.min_interval - (time.monotonic() - self._last)
-        if wait > 0:
-            time.sleep(wait)
-        self._last = time.monotonic()
+        with self._lock:  # global request-rate cap shared by all worker threads
+            wait = self.min_interval - (time.monotonic() - self._last)
+            if wait > 0:
+                time.sleep(wait)
+            self._last = time.monotonic()
 
     def get_json(self, url: str, params: dict, cache_key: str | None = None):
         """GET with cache. Empty-but-valid responses are cached too."""
