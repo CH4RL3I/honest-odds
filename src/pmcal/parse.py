@@ -91,7 +91,9 @@ def normalise_category(labels) -> str:
     return "Other" if low else "Uncategorised"
 
 
-def parse_market(raw: dict, min_volume: float = 0.0) -> Market | None:
+def parse_market(
+    raw: dict, min_volume: float = 0.0, min_lifetime_days: float = 0.0
+) -> Market | None:
     """Return a Market if `raw` is a binary Yes/No market with a clean resolution."""
     try:
         outcomes = _loads(raw.get("outcomes"))
@@ -116,6 +118,11 @@ def parse_market(raw: dict, min_volume: float = 0.0) -> Market | None:
     t_res = resolution_time(raw)
     if t_res is None:
         return None
+    if min_lifetime_days > 0:
+        # Cohort restriction: the market must have existed long enough for every horizon.
+        t_start = parse_ts(raw.get("startDate")) or parse_ts(raw.get("createdAt"))
+        if t_start is None or t_res - t_start < min_lifetime_days * DAY:
+            return None
     return Market(
         market_id=str(raw["id"]),
         question=str(raw.get("question", "")),

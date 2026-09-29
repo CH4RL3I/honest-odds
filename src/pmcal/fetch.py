@@ -47,13 +47,15 @@ def iter_market_pages(client: Client, min_volume: float, max_pages: int | None =
             return
 
 
-def collect_markets(client, min_volume, max_pages=None, log=print) -> list[Market]:
+def collect_markets(
+    client, min_volume, max_pages=None, log=print, min_lifetime_days=0.0
+) -> list[Market]:
     out: list[Market] = []
     seen = n_raw = 0
     for page in iter_market_pages(client, min_volume, max_pages):
         for raw in page:
             n_raw += 1
-            m = parse_market(raw, min_volume)
+            m = parse_market(raw, min_volume, min_lifetime_days)
             if m:
                 out.append(m)
         seen += 1
@@ -104,12 +106,13 @@ def build_dataset(
     raw_dir: Path,
     min_volume: float = DEFAULT_MIN_VOLUME,
     max_pages: int | None = None,
+    min_lifetime_days: float = 0.0,
     sample: int | None = None,
     seed: int = 0,
     log=print,
 ) -> pd.DataFrame:
     client = Client(raw_dir)
-    markets = collect_markets(client, min_volume, max_pages, log)
+    markets = collect_markets(client, min_volume, max_pages, log, min_lifetime_days)
     if sample and len(markets) > sample:
         # seeded uniform random subsample of eligible markets (reproducible given the same listing)
         rng = np.random.default_rng(seed)
