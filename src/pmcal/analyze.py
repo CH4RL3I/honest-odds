@@ -158,7 +158,7 @@ def fig_calibration(df: pd.DataFrame, path: Path) -> None:
     axes[0].legend(loc="upper left", fontsize=8, frameon=False)
     fig.suptitle("Resolved Polymarket binary markets: calibration by horizon", fontsize=12)
     fig.tight_layout()
-    fig.savefig(path, dpi=150)
+    fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -182,7 +182,7 @@ def fig_slopes(tables: dict[str, pd.DataFrame], path: Path) -> None:
     ax.set_title("Calibration slope by horizon, and by category / volume at 7 days", fontsize=11)
     ax.grid(axis="x", alpha=0.25)
     fig.tight_layout()
-    fig.savefig(path, dpi=150)
+    fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -212,7 +212,7 @@ def fig_strategy(results: dict, split_dt: str, path: Path) -> None:
         ax.legend(fontsize=8, frameon=False)
     fig.autofmt_xdate()
     fig.tight_layout()
-    fig.savefig(path, dpi=150)
+    fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
 
 
